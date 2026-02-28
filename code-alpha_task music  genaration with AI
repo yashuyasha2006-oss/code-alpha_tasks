@@ -1,0 +1,137 @@
+🎵 TASK 3: Music Generation with AI
+🔹 Project Overview
+We train a deep learning model to learn musical patterns from MIDI files and generate new music automatically.
+Workflow:
+1.	Collect MIDI files
+2.	Extract notes/chords
+3.	Convert to sequences
+4.	Train LSTM model
+5.	Generate new notes
+6.	Convert output to MIDI
+________________________________________
+🔹 Step 1: Collect MIDI Dataset
+Download MIDI files (classical/jazz):
+•	Classical: Bach, Mozart, Beethoven
+•	Jazz MIDI packs
+📁 Folder structure:
+music/
+ ├── midi/
+ │    ├── file1.mid
+ │    ├── file2.mid
+________________________________________
+🔹 Step 2: Extract Notes from MIDI (music21)
+from music21 import converter, instrument, note, chord
+import glob
+
+notes = []
+
+for file in glob.glob("music/midi/*.mid"):
+    midi = converter.parse(file)
+    parts = instrument.partitionByInstrument(midi)
+
+    if parts:
+        elements = parts.parts[0].recurse()
+    else:
+        elements = midi.flat.notes
+
+    for element in elements:
+        if isinstance(element, note.Note):
+            notes.append(str(element.pitch))
+        elif isinstance(element, chord.Chord):
+            notes.append('.'.join(str(n) for n in element.normalOrder))
+
+print("Total notes:", len(notes))
+________________________________________
+🔹 Step 3: Prepare Sequences
+import numpy as np
+from tensorflow.keras.utils import to_categorical
+
+sequence_length = 100
+
+pitchnames = sorted(set(notes))
+note_to_int = {note: number for number, note in enumerate(pitchnames)}
+
+network_input = []
+network_output = []
+
+for i in range(0, len(notes) - sequence_length):
+    seq_in = notes[i:i + sequence_length]
+    seq_out = notes[i + sequence_length]
+    network_input.append([note_to_int[n] for n in seq_in])
+    network_output.append(note_to_int[seq_out])
+
+n_patterns = len(network_input)
+
+network_input = np.reshape(network_input, (n_patterns, sequence_length, 1))
+network_input = network_input / float(len(pitchnames))
+network_output = to_categorical(network_output)
+________________________________________
+🔹 Step 4: Build LSTM Model
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+
+model = Sequential([
+    LSTM(512, input_shape=(network_input.shape[1], network_input.shape[2]), return_sequences=True),
+    Dropout(0.3),
+    LSTM(512),
+    Dropout(0.3),
+    Dense(256, activation='relu'),
+    Dense(len(pitchnames), activation='softmax')
+])
+
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+model.summary()
+________________________________________
+🔹 Step 5: Train the Model
+model.fit(network_input, network_output, epochs=50, batch_size=64)
+model.save("music_generator.h5")
+________________________________________
+🔹 Step 6: Generate Music
+import random
+
+start = random.randint(0, len(network_input)-1)
+pattern = network_input[start]
+int_to_note = {number: note for number, note in enumerate(pitchnames)}
+
+prediction_output = []
+
+for _ in range(200):
+    prediction = model.predict(pattern.reshape(1, sequence_length, 1), verbose=0)
+    index = np.argmax(prediction)
+    result = int_to_note[index]
+    prediction_output.append(result)
+
+    pattern = np.append(pattern, [[index / float(len(pitchnames))]], axis=0)
+    pattern = pattern[1:]
+________________________________________
+🔹 Step 7: Convert Generated Notes to MIDI
+from music21 import stream
+
+offset = 0
+output_notes = []
+
+for pattern in prediction_output:
+    if '.' in pattern:
+        notes_in_chord = pattern.split('.')
+        chord_notes = [note.Note(int(n)) for n in notes_in_chord]
+        new_chord = chord.Chord(chord_notes)
+        new_chord.offset = offset
+        output_notes.append(new_chord)
+    else:
+        new_note = note.Note(pattern)
+        new_note.offset = offset
+        output_notes.append(new_note)
+
+    offset += 0.5
+
+midi_stream = stream.Stream(output_notes)
+midi_stream.write('midi', fp='generated_music.mid')
+🎧 Play the generated_music.mid file in any media player or DAW.
+________________________________________
+🔹 Technologies Used
+•	Python
+•	TensorFlow / Keras
+•	music21
+•	LSTM (RNN)
+•	MIDI processing
+
